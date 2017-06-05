@@ -3778,7 +3778,7 @@ if (typeof cornerstoneTools === 'undefined') {
             context.save();
 
             var data = toolData.data[i];
-console.log(data);
+// console.log(data);
             if (data.active) {
                 // color = data.activeColor;
                 color = data.toolColor;

@@ -40,20 +40,22 @@ import { Headers, RequestOptions } from '@angular/http';
         </div>
         <div class="col-xs-2">
           <ul class="list-group">
-            <a id="rectangleroi1" class="list-group-item" (click)="chooseType1()">Type 1  
+            <a id="rectangleroi1" class="list-group-item" (click)="chooseType1()">肿瘤瘤体 
               <svg width="10px" height="10px"><rect stroke="black" width="10px" height="10px" fill="red"></rect></svg></a>
-            <a id="rectangleroi2" class="list-group-item" (click)="chooseType2()">Type 2
+            <a id="rectangleroi2" class="list-group-item" (click)="chooseType2()">中心坏死
               <svg width="10px" height="10px"><rect stroke="black" width="10px" height="10px" fill="yellow"></rect></svg></a>
-            <a id="rectangleroi3" class="list-group-item" (click)="chooseType3()">Type 3
+            <a id="rectangleroi3" class="list-group-item" (click)="chooseType3()">周围水肿
               <svg width="10px" height="10px"><rect stroke="black" width="10px" height="10px" fill="pink"></rect></svg></a>
-            <a id="rectangleroi4" class="list-group-item" (click)="chooseType4()">Type 4
+            <!--<a id="rectangleroi4" class="list-group-item" (click)="chooseType4()">Type 4
               <svg width="10px" height="10px"><rect stroke="black" width="10px" height="10px" fill="greenyellow"></rect></svg></a>
             <a id="rectangleroi5" class="list-group-item" (click)="chooseType5()">Type 5
               <svg width="10px" height="10px"><rect stroke="black" width="10px" height="10px" fill="orange"></rect></svg></a>
-            <!--<a id="freehand1" class="list-group-item" (click)="chooseFreehand1()">Type 1(freehand)</a>-->
+            --><!--<a id="freehand1" class="list-group-item" (click)="chooseFreehand1()">Type 1(freehand)</a>-->
             <!--<a id="freehand2" class="list-group-item" (click)="chooseFreehand2()">Type 2(freehand)</a>-->
           </ul>
           <ul class="list-group">
+            <a id="historyBack" class="list-group-item" (click)="historyBack()">历史回退</a>
+            <a id="historyBack" class="list-group-item" (click)="historyForward()">历史前进</a>
             <a id="submit" class="list-group-item" (click)="submit()">保存</a>
             <a id="clear" class="list-group-item" (click)="clear()">清空</a>
             <!--<a id="restore" class="list-group-item" (click)="restore()">Restore</a>-->
@@ -131,6 +133,9 @@ export class DicomComponent implements OnInit {
   localUrlPrefix: string;
   imgUrl: string;
   imgUrlPrefix: string;
+  historyStates: object[];
+  currentHistoryIndex: number;
+  currentState: object;
   actionMapping: IActionMapping = {
     mouse: {
       // contextMenu: (tree, node, $event) => {
@@ -168,6 +173,8 @@ export class DicomComponent implements OnInit {
           });
         }
         if (!node.data.children) {
+          $('.list-group-item').removeClass('active');
+          this.clear();
           this.currentNode = node;
           this.imgUrl = this.imgUrlPrefix + node.data.url;
           this.loadImg();
@@ -194,6 +201,8 @@ export class DicomComponent implements OnInit {
     this.isLabelDone = true;
     this.localUrlPrefix = 'http://' + localIp + ':8081';
     this.imgUrlPrefix = 'wadouri:http://' + localIp + ':8081';
+    this.historyStates = [];
+    this.currentHistoryIndex = -1;
     // this.localUrlPrefix = 'http://localhost:8081';
     // this.imgUrlPrefix = 'wadouri:http://localhost:8081';
   }
@@ -207,8 +216,13 @@ export class DicomComponent implements OnInit {
     cornerstone.enable(element);
 
     // Listen for changes to the viewport so we can update the text overlays in the corner
+
+    $('#dicomDom').on('endFreehandDrawing', (e) => {
+      console.log("endFreehandDrawing");
+      this.recordHistory();
+    });
     $('#dicomDom').on('CornerstoneImageRendered', (e) => {
-      // console.log('dicomimage CornerstoneImageRendered');
+      console.log('dicomimage CornerstoneImageRendered');
       const viewport = cornerstone.getViewport(e.target);
       $('#mrbottomleft').text('WW/WC: ' + Math.round(viewport.voi.windowWidth) + '/' + Math.round(viewport.voi.windowCenter));
       $('#mrbottomright').text('Zoom: ' + viewport.scale.toFixed(2));
@@ -270,8 +284,12 @@ export class DicomComponent implements OnInit {
       if (savedState) {
         this.disableAllTools();
         this.savedState = savedState;
-        cornerstoneTools.appState.restore(JSON.parse(this.savedState));
+        this.currentState = JSON.parse(this.savedState);
+        cornerstoneTools.appState.restore(this.currentState);
         cornerstone.updateImage(this.element);
+        this.historyStates = [];
+        this.historyStates.push($.extend(true, {}, this.currentState));
+        this.currentHistoryIndex = 0;
       }
     });
   }
@@ -405,13 +423,31 @@ export class DicomComponent implements OnInit {
     const options = new RequestOptions({ headers: headers});
 
     this.http.post(url, labeledData, options).toPromise().then(() => console.log('sended labelData'));
+
   }
 
   clear() {
     const element = this.element;
     const toolStateManager = cornerstoneTools.getElementToolStateManager(element);
     toolStateManager.clear(element);
+    var configuration = {
+      mouseLocation: {
+        handles: {
+          start: {
+            highlight: true,
+            active: true,
+          }
+        }
+      },
+      freehand: false,
+      modifying: false,
+      currentHandle: 0,
+      currentTool: -1
+    };
+    cornerstoneTools.freehand.setConfiguration(configuration);
     cornerstone.updateImage(element);
+
+    this.recordHistory();
   }
 
   // restore() {
@@ -425,6 +461,35 @@ export class DicomComponent implements OnInit {
   //   console.log(node);
   //   console.log(node.parent.children);
   // }
+  recordHistory() {
+    if (this.currentHistoryIndex !== this.historyStates.length - 1) {
+      this.historyStates.splice(this.currentHistoryIndex, this.historyStates.length - this.currentHistoryIndex - 1);
+    }
+    this.currentState = cornerstoneTools.appState.save([this.element]);
+    this.historyStates.push($.extend(true, {}, this.currentState));
+    this.currentHistoryIndex++;
+  }
+
+
+  historyBack() {
+    // this.historyStates.splice(this.currentHistoryIndex, 1);
+    // this.recordHistory();
+    if (this.currentHistoryIndex > 0) {
+      this.currentHistoryIndex--;
+    };
+    this.currentState = this.historyStates[this.currentHistoryIndex];
+    cornerstoneTools.appState.restore(this.currentState);
+    cornerstone.updateImage(this.element);
+  }
+  historyForward() {
+    // this.recordHistory();
+    if (this.currentHistoryIndex < this.historyStates.length - 1) {
+      this.currentHistoryIndex++;
+    };
+    this.currentState = this.historyStates[this.currentHistoryIndex];
+    cornerstoneTools.appState.restore(this.currentState);
+    cornerstone.updateImage(this.element);
+  }
 
 }
 
